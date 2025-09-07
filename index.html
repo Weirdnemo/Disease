@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Research-Grade Epidemiological Sandbox (RGES)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root { --background-color: #0c0a09; --primary-text: #f5f5f5; --secondary-text: #a3a3a3; --border-color: #27272a; --accent-border: #52525b; --surface-color: rgba(18, 18, 18, 0.7); }
+        body { font-family: 'Inter', sans-serif; background-color: var(--background-color); color: var(--primary-text); }
+        .control-section { background: var(--surface-color); border: 1px solid var(--border-color); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-radius: 1rem; }
+        .form-input, .form-select { background-color: #111; border: 1px solid var(--accent-border); color: var(--primary-text); border-radius: 0.5rem; padding: 0.5rem 0.75rem; transition: border-color 0.2s; }
+        .form-input:focus, .form-select:focus { outline: none; border-color: var(--primary-text); }
+        .slider-thumb::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; background: var(--primary-text); cursor: pointer; border-radius: 50%; margin-top: -5px; }
+        .btn { border-radius: 0.5rem; font-weight: 600; transition: all 0.2s ease-in-out; }
+        .btn-primary { background-color: var(--primary-text); color: #000; }
+        .btn-primary:hover:not(:disabled) { background-color: #d4d4d4; }
+        .btn-primary:disabled { background-color: #404040; color: var(--secondary-text); cursor: not-allowed; }
+        .btn-secondary { background-color: var(--border-color); color: var(--primary-text); }
+        .btn-secondary:hover { background-color: var(--accent-border); }
+        .accordion-header { cursor: pointer; }
+        .accordion-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; }
+        .tooltip { position: relative; display: inline-block; cursor: help; }
+        .tooltip .tooltiptext { visibility: hidden; width: 240px; background-color: var(--border-color); color: #fff; text-align: left; border-radius: 6px; padding: 8px; position: absolute; z-index: 10; bottom: 125%; left: 50%; margin-left: -120px; opacity: 0; transition: opacity 0.3s; font-size: 0.75rem; font-weight: 400; line-height: 1.5; }
+        .tooltip:hover .tooltiptext { visibility: visible; opacity: 1; }
+        .chart-container { position: relative; flex-grow: 1; min-height: 0; } /* Stable container for chart */
+        .chart-canvas { position: relative; width: 100%; height: 100%; }
+        .legend-btn { transition: all 0.2s; border: 1px solid transparent; border-left: none; padding-left: 4px; padding-right: 4px; }
+        .legend-btn.active { background-color: var(--border-color); border-color: var(--accent-border); }
+    </style>
+</head>
+<body class="p-4">
+
+    <header class="p-6 text-center">
+        <h1 class="text-4xl md:text-5xl font-extrabold text-white tracking-tight">Research-Grade Epidemiological Sandbox</h1>
+        <p class="text-gray-400 mt-2">Stochastic, Age-Stratified SEIRV Model with Adaptive Interventions</p>
+    </header>
+
+    <main class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <!-- LEFT CONTROLS -->
+        <div class="xl:col-span-1 flex flex-col gap-6">
+            <div class="control-section p-4">
+                 <h2 class="text-xl font-bold mb-2">Scenario Presets</h2>
+                 <select id="presets" class="w-full form-select">
+                    <option value="covid_realistic">COVID-19 (Realistic)</option>
+                    <option value="flu_seasonal">Aggressive Seasonal Flu</option>
+                    <option value="past_pandemic">Major Historical Pandemic</option>
+                    <option value="fast_preview">Fast Preview (5 Runs)</option>
+                 </select>
+            </div>
+             <div class="control-section p-4 flex flex-wrap gap-2">
+                <button id="importConfig" class="btn btn-secondary text-sm px-3 py-2">Import Config</button>
+                <input type="file" id="importFile" class="hidden" accept=".json">
+                <button id="exportConfig" class="btn btn-secondary text-sm px-3 py-2">Export Config</button>
+                <button id="exportResults" class="btn btn-secondary text-sm px-3 py-2">Export Results</button>
+            </div>
+            
+            <div class="control-section divide-y divide-zinc-800">
+                <div class="accordion-item">
+                    <div class="accordion-header p-4 flex justify-between items-center"><h3 class="text-lg font-bold">Simulation & Disease</h3><span class="text-2xl">-</span></div>
+                    <div class="accordion-content p-4 pt-0 space-y-4">
+                        <div><label class="flex justify-between text-sm"><span>Base R₀ <span class="tooltip text-neutral-500">[?]<span class="tooltiptext">The baseline reproduction number. The average number of new infections from a single case in a fully susceptible population.</span></span></span><span id="r0Value" class="font-semibold text-neutral-400"></span></label><input type="range" id="baseR0" min="0.5" max="8.0" step="0.1" value="3.5" class="w-full h-1.5 bg-zinc-800 rounded-lg slider-thumb"></div>
+                        <div><label class="flex justify-between text-sm"><span>Avg. Infectious Period <span class="tooltip text-neutral-500">[?]<span class="tooltiptext">Average number of days an individual is infectious and can spread the disease.</span></span></span><span id="infectiousValue" class="font-semibold text-neutral-400"></span></label><input type="range" id="infectious" min="3" max="30" step="1" value="10" class="w-full h-1.5 bg-zinc-800 rounded-lg slider-thumb"></div>
+                        <div><label class="flex justify-between text-sm"><span>Immunity Duration <span class="tooltip text-neutral-500">[?]<span class="tooltiptext">Average time until a recovered or vaccinated person becomes susceptible again. Set to max for lifelong immunity.</span></span></span><span id="immunityValue" class="font-semibold text-neutral-400"></span></label><input type="range" id="immunity" min="90" max="1825" step="5" value="540" class="w-full h-1.5 bg-zinc-800 rounded-lg slider-thumb"></div>
+                        <div><label class="flex justify-between text-sm"><span>Avg. Incubation Period <span class="tooltip text-neutral-500">[?]<span class="tooltiptext">Average time from exposure to becoming infectious.</span></span></span><span id="incubationValue" class="font-semibold text-neutral-400"></span></label><input type="range" id="incubation" min="1" max="21" step="1" value="4" class="w-full h-1.5 bg-zinc-800 rounded-lg slider-thumb"></div>
+                    </div>
+                </div>
+
+                <div class="accordion-item">
+                    <div class="accordion-header p-4 flex justify-between items-center"><h3 class="text-lg font-bold">Demographics & Contacts</h3><span class="text-2xl">+</span></div>
+                    <div class="accordion-content p-4 pt-0 space-y-4">
+                        <div><label class="flex justify-between text-sm"><span>Population <span class="tooltip text-neutral-500">[?]<span class="tooltiptext">Total population size for the simulation.</span></span></span><span id="populationValue" class="font-semibold text-neutral-400"></span></label><input type="range" id="population" min="100000" max="40000000" step="100000" value="10000000" class="w-full h-1.5 bg-zinc-800 rounded-lg slider-thumb"></div>
+                        <h4 class="text-md font-semibold text-gray-300 pt-2">Age Distribution (%) [0-19, 20-64, 65+] <span class="tooltip text-neutral-500">[?]<span class="tooltiptext">Percentage of the population in each age group. Must sum to 100.</span></span></h4>
+                        <div class="grid grid-cols-3 gap-2"><input type="number" id="ageDist0" class="form-input text-sm" min="0" max="100" step="1" value="25"><input type="number" id="ageDist1" class="form-input text-sm" min="0" max="100" step="1" value="60"><input type="number" id="ageDist2" class="form-input text-sm" min="0" max="100" step="1" value="15"></div>
+                        <span id="ageSum" class="text-sm text-green-400 ml-2">Sum: 100%</span>
+                        <h4 class="text-md font-semibold text-gray-300 pt-2">Contact Matrix <span class="tooltip text-neutral-500">[?]<span class="tooltiptext">Relative contact rates between age groups. A higher number means more interaction. (Rows: Contactor, Columns: Contactee)</span></span></h4>
+                        <div class="grid grid-cols-3 gap-1">
+                            <input type="number" step="0.1" min="0" id="cm00" class="form-input text-xs" value="4"><input type="number" step="0.1" min="0" id="cm01" class="form-input text-xs" value="2"><input type="number" step="0.1" min="0" id="cm02" class="form-input text-xs" value="0.5">
+                            <input type="number" step="0.1" min="0" id="cm10" class="form-input text-xs" value="2"><input type="number" step="0.1" min="0" id="cm11" class="form-input text-xs" value="6"><input type="number" step="0.1" min="0" id="cm12" class="form-input text-xs" value="1">
+                            <input type="number" step="0.1" min="0" id="cm20" class="form-input text-xs" value="0.5"><input type="number" step="0.1" min="0" id="cm21" class="form-input text-xs" value="1"><input type="number" step="0.1" min="0" id="cm22" class="form-input text-xs" value="2">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="accordion-item">
+                    <div class="accordion-header p-4 flex justify-between items-center"><h3 class="text-lg font-bold">Severity & Reporting</h3><span class="text-2xl">+</span></div>
+                    <div class="accordion-content p-4 pt-0 space-y-4">
+                        <h4 class="text-md font-semibold text-gray-300">Hospitalization Rate (% of Symptomatic) <span class="tooltip text-neutral-500">[?]<span class="tooltiptext">For each age group, the percentage of symptomatic cases that require hospitalization.</span></span></h4>
+                        <div class="grid grid-cols-3 gap-2"><input type="number" id="hospRate0" class="form-input text-sm" min="0" max="100" step="0.1" value="1"><input type="number" id="hospRate1" class="form-input text-sm" min="0" max="100" step="0.1" value="5"><input type="number" id="hospRate2" class="form-input text-sm" min="0" max="100" step="0.1" value="20"></div>
+                        <h4 class="text-md font-semibold text-gray-300">Infection Fatality Rate (% of Hospitalized) <span class="tooltip text-neutral-500">[?]<span class="tooltiptext">For each age group, the percentage of hospitalized cases that result in death.</span></span></h4>
+                        <div class="grid grid-cols-3 gap-2"><input type="number" id="ifrRate0" class="form-input text-sm" min="0" max="100" step="0.1" value="1"><input type="number" id="ifrRate1" class="form-input text-sm" min="0" max="100" step="0.1" value="5"><input type="number" id="ifrRate2" class="form-input text-sm" min="0" max="100" step="0.1" value="15"></div>
+                        <h4 class="text-md font-semibold text-gray-300">ICU Admission Rate (% of Hospitalized) <span class="tooltip text-neutral-500">[?]<span class="tooltiptext">For each age group, the percentage of hospitalized cases that require ICU care.</span></span></h4>
+                        <div class="grid grid-cols-3 gap-2"><input type="number" id="icuRate0" class="form-input text-sm" min="0" max="100" step="0.1" value="20"><input type="number" id="icuRate1" class="form-input text-sm" min="0" max="100" step="0.1" value="25"><input type="number" id="icuRate2" class="form-input text-sm" min="0" max="100" step="0.1" value="40"></div>
+                        <div><label class="flex justify-between text-sm"><span>Case Detection Probability (%) <span class="tooltip text-neutral-500">[?]<span class="tooltiptext">The percentage of true symptomatic infections that are officially detected and reported.</span></span></span><span id="detectionValue" class="font-semibold text-neutral-400"></span></label><input type="range" id="detection" min="1" max="100" step="1" value="30" class="w-full h-1.5 bg-zinc-800 rounded-lg slider-thumb"></div>
+                        <div><label class="flex justify-between text-sm"><span>Reporting Lag (days) <span class="tooltip text-neutral-500">[?]<span class="tooltiptext">The average delay between when a person gets sick and when their case is officially reported.</span></span></span><span id="lagValue" class="font-semibold text-neutral-400"></span></label><input type="range" id="lag" min="0" max="14" step="1" value="7" class="w-full h-1.5 bg-zinc-800 rounded-lg slider-thumb"></div>
+                    </div>
+                </div>
+
+                <div class="accordion-item">
+                    <div class="accordion-header p-4 flex justify-between items-center"><h3 class="text-lg font-bold">Interventions</h3><span class="text-2xl">+</span></div>
+                    <div class="accordion-content p-4 pt-0 space-y-4">
+                        <h4 class="text-md font-semibold text-gray-300">Vaccination Campaign</h4>
+                        <div><label class="text-sm">Campaign Start (Day) <span class="tooltip text-neutral-500">[?]<span class="tooltiptext">The day the vaccination campaign begins after the start of the simulation.</span></span></label><input type="number" id="vaccineStart" class="form-input w-full mt-1" min="0" max="730" step="1" value="180"></div>
+                        <div><label class="text-sm">Daily Doses <span class="tooltip text-neutral-500">[?]<span class="tooltiptext">The total number of vaccine doses administered per day across the population.</span></span></label><input type="number" id="vaccineRate" class="form-input w-full mt-1" min="0" max="1000000" step="1000" value="25000"></div>
+                        <div><label class="flex justify-between text-sm"><span>Efficacy vs Infection (%) <span class="tooltip text-neutral-500">[?]<span class="tooltiptext">How effective the vaccine is at preventing a person from getting infected at all.</span></span></span><span id="vacEffInfValue" class="font-semibold text-neutral-400"></span></label><input type="range" id="vacEffInf" min="0" max="100" step="1" value="70" class="w-full h-1.5 bg-zinc-800 rounded-lg slider-thumb"></div>
+                        <div><label class="flex justify-between text-sm"><span>Efficacy vs Severe Disease (%) <span class="tooltip text-neutral-500">[?]<span class="tooltiptext">How effective the vaccine is at preventing hospitalization/death if a breakthrough infection occurs.</span></span></span><span id="vacEffSevValue" class="font-semibold text-neutral-400"></span></label><input type="range" id="vacEffSev" min="0" max="100" step="1" value="90" class="w-full h-1.5 bg-zinc-800 rounded-lg slider-thumb"></div>
+                        <h4 class="text-md font-semibold text-gray-300 pt-2">Adaptive NPI (Non-Pharmaceutical Intervention)</h4>
+                        <div><label class="text-sm">Trigger: ICU Occupancy > (%) <span class="tooltip text-neutral-500">[?]<span class="tooltiptext">An intervention (e.g., lockdown) is automatically triggered if the percentage of ICU beds occupied exceeds this value.</span></span></label><input type="number" id="npiTrigger" class="form-input w-full mt-1" min="0" max="100" step="1" value="50"></div>
+                        <div><label class="text-sm">Contact Reduction (%) <span class="tooltip text-neutral-500">[?]<span class="tooltiptext">How much the intervention reduces social contacts across the entire population.</span></span></label><input type="number" id="npiStrength" class="form-input w-full mt-1" min="0" max="100" step="1" value="40"></div>
+                        <div><label class="text-sm">Trigger Lag (days) <span class="tooltip text-neutral-500">[?]<span class="tooltiptext">The delay between when the ICU trigger is met and when the intervention's effects begin.</span></span></label><input type="number" id="npiLag" class="form-input w-full mt-1" min="0" max="30" step="1" value="7"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT CONTENT -->
+        <div class="xl:col-span-2 flex flex-col gap-6">
+             <div class="control-section p-4">
+                <div class="flex flex-wrap items-center justify-between gap-y-4">
+                    <div class="flex-grow flex items-center gap-2"><input type="text" id="rngSeed" class="form-input w-24 text-sm" placeholder="12345"><button id="runButton" class="w-full sm:w-auto flex-grow btn btn-primary py-3 px-6 text-lg">Run Simulation</button></div>
+                    <div class="flex items-center gap-2"><button id="freezeButton" class="text-sm py-2 px-4 btn btn-secondary">❄️ Freeze & Compare</button><button id="resetButton" class="text-sm py-2 px-4 btn btn-secondary">Reset All</button></div>
+                    <div class="flex items-center gap-4">
+                        <div><label class="text-sm">Runs <span class="tooltip text-neutral-500">[?]<span class="tooltiptext">Number of stochastic simulations to run. More runs provide a better estimate of the range of possible outcomes.</span></span></label><input type="number" id="stochasticRuns" class="form-input w-20 text-sm" min="1" max="100" step="1" value="50"></div>
+                        <div><input type="checkbox" id="logScale" class="h-4 w-4 rounded form-input"><label for="logScale" class="ml-2 text-sm">Log Scale</label></div>
+                    </div>
+                </div>
+                 <div class="grid grid-cols-3 gap-4 mt-4">
+                    <div><label class="text-sm">Hospital Beds <span class="tooltip text-neutral-500">[?]<span class="tooltiptext">Total number of available hospital beds.</span></span></label><input type="number" id="hospitalCapacity" class="form-input w-full mt-1" min="1000" max="1000000" step="1000" value="50000"></div>
+                    <div><label class="text-sm">ICU Beds <span class="tooltip text-neutral-500">[?]<span class="tooltiptext">Total number of available ICU beds. This is the primary trigger for adaptive NPIs.</span></span></label><input type="number" id="icuCapacity" class="form-input w-full mt-1" min="100" max="100000" step="100" value="5000"></div>
+                    <div><label class="text-sm">ICU Mortality x <span class="tooltip text-neutral-500">[?]<span class="tooltiptext">A multiplier for the fatality rate when ICU capacity is exceeded. e.g., 2 means IFR doubles when ICUs are full.</span></span></label><input type="number" id="icuMortalityMultiplier" class="form-input w-full mt-1" min="1" max="10" step="0.1" value="2"></div>
+                </div>
+                <div id="progress-container" class="w-full bg-gray-700 rounded-full h-2.5 mt-4 hidden"><div id="progress-bar" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div></div>
+            </div>
+
+            <div class="control-section p-4 flex-grow flex flex-col">
+                <div class="flex-grow grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
+                    <div class="relative h-full flex flex-col">
+                        <h3 class="text-center font-bold text-lg">Epidemic Curves</h3>
+                        <div class="flex justify-center mb-2"><button id="exportMainChart" class="btn btn-secondary text-sm px-3 py-1">📊 Export</button></div>
+                        <div id="main-legend" class="flex justify-center gap-2 flex-wrap mb-2"></div>
+                        <div class="chart-container">
+                            <canvas id="mainChart" class="chart-canvas"></canvas>
+                        </div>
+                    </div>
+                    <div class="relative h-full flex flex-col">
+                        <h3 class="text-center font-bold text-lg mb-2">Rₜ Plot</h3>
+                        <div class="flex justify-center mb-2"><button id="exportRtChart" class="btn btn-secondary text-sm px-3 py-1">📊 Export</button></div>
+                        <div class="chart-container">
+                            <canvas id="rtChart" class="chart-canvas"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="control-section p-4">
+                 <h2 class="text-xl font-bold mb-4 text-center">Simulation Summary (Mean of Runs)</h2>
+                 <div id="results-grid" class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                    <div class="bg-black/20 p-3 rounded-lg"><h3 class="text-sm text-gray-400">Peak ICU</h3><p id="peakICUValue" class="text-xl font-bold">-</p></div>
+                    <div class="bg-black/20 p-3 rounded-lg"><h3 class="text-sm font-semibold text-red-400">Total Deaths</h3><p id="totalDeathsValue" class="text-2xl font-bold text-red-400">-</p></div>
+                    <div class="bg-black/20 p-3 rounded-lg"><h3 class="text-sm text-gray-400">Attack Rate</h3><p id="attackRateValue" class="text-xl font-bold">-</p></div>
+                    <div class="bg-black/20 p-3 rounded-lg"><h3 class="text-sm text-gray-400">Peak Date</h3><p id="peakDateValue" class="text-xl font-bold">-</p></div>
+                 </div>
+            </div>
+        </div>
+    </main>
+
+    <script type="module">
+        // --- PRNG ---
+        function mulberry32(a) { return function() { var t = a += 0x6D2B79F5; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; } }
+
+        // --- STATE & CONFIG ---
+        let charts = { main: null, rt: null };
+        let currentRunResults = [];
+        let frozenResults = [];
+        let freezeCounter = 0;
+        
+        const PRESETS = {
+            covid_realistic: { baseR0: 3.5, infectious: 10, immunity: 540, incubation: 4, population: 10e6, ageDist: [25, 60, 15], contactMatrix: [4, 2, 0.5, 2, 6, 1, 0.5, 1, 2], hospRates: [1, 5, 20], ifrRates: [1, 5, 15], icuRates: [20, 25, 40], detection: 30, lag: 7, vaccineStart: 180, vaccineRate: 25000, vacEffInf: 70, vacEffSev: 90, npiTrigger: 50, npiStrength: 40, npiLag: 7, hospitalCapacity: 50000, icuCapacity: 5000, icuMortalityMultiplier: 2, stochasticRuns: 50 },
+            flu_seasonal: { baseR0: 1.5, infectious: 7, immunity: 365, incubation: 2, population: 10e6, ageDist: [25, 60, 15], contactMatrix: [4, 2, 0.5, 2, 6, 1, 0.5, 1, 2], hospRates: [0.1, 0.5, 3], ifrRates: [1, 2, 10], icuRates: [5, 10, 20], detection: 20, lag: 3, vaccineStart: 9999, vaccineRate: 0, vacEffInf: 60, vacEffSev: 80, npiTrigger: 80, npiStrength: 20, npiLag: 14, hospitalCapacity: 25000, icuCapacity: 2500, icuMortalityMultiplier: 1.5, stochasticRuns: 50 },
+            past_pandemic: { baseR0: 2.5, infectious: 8, immunity: 1825, incubation: 3, population: 10e6, ageDist: [30, 55, 15], contactMatrix: [5, 3, 1, 3, 5, 2, 1, 2, 3], hospRates: [2, 8, 25], ifrRates: [2, 8, 20], icuRates: [15, 20, 30], detection: 10, lag: 10, vaccineStart: 9999, vaccineRate: 0, vacEffInf: 0, vacEffSev: 0, npiTrigger: 30, npiStrength: 60, npiLag: 7, hospitalCapacity: 30000, icuCapacity: 3000, icuMortalityMultiplier: 3, stochasticRuns: 50 },
+            fast_preview: { baseR0: 3.5, infectious: 10, immunity: 540, incubation: 4, population: 10e6, ageDist: [25, 60, 15], contactMatrix: [4, 2, 0.5, 2, 6, 1, 0.5, 1, 2], hospRates: [1, 5, 20], ifrRates: [1, 5, 15], icuRates: [20, 25, 40], detection: 30, lag: 7, vaccineStart: 180, vaccineRate: 25000, vacEffInf: 70, vacEffSev: 90, npiTrigger: 50, npiStrength: 40, npiLag: 7, hospitalCapacity: 50000, icuCapacity: 5000, icuMortalityMultiplier: 2, stochasticRuns: 5 },
+        };
+
+        const DOM = {
+            sliders: { baseR0: document.getElementById('baseR0'), infectious: document.getElementById('infectious'), immunity: document.getElementById('immunity'), incubation: document.getElementById('incubation'), population: document.getElementById('population'), detection: document.getElementById('detection'), lag: document.getElementById('lag'), vacEffInf: document.getElementById('vacEffInf'), vacEffSev: document.getElementById('vacEffSev')},
+            inputs: { presets: document.getElementById('presets'), rngSeed: document.getElementById('rngSeed'), stochasticRuns: document.getElementById('stochasticRuns'), hospitalCapacity: document.getElementById('hospitalCapacity'), icuCapacity: document.getElementById('icuCapacity'), icuMortalityMultiplier: document.getElementById('icuMortalityMultiplier'), vaccineStart: document.getElementById('vaccineStart'), vaccineRate: document.getElementById('vaccineRate'), npiTrigger: document.getElementById('npiTrigger'), npiStrength: document.getElementById('npiStrength'), npiLag: document.getElementById('npiLag') },
+            ageDist: [document.getElementById('ageDist0'), document.getElementById('ageDist1'), document.getElementById('ageDist2')],
+            ageSum: document.getElementById('ageSum'),
+            contactMatrix: [[document.getElementById('cm00'), document.getElementById('cm01'), document.getElementById('cm02')], [document.getElementById('cm10'), document.getElementById('cm11'), document.getElementById('cm12')], [document.getElementById('cm20'), document.getElementById('cm21'), document.getElementById('cm22')]],
+            hospRates: [document.getElementById('hospRate0'), document.getElementById('hospRate1'), document.getElementById('hospRate2')],
+            ifrRates: [document.getElementById('ifrRate0'), document.getElementById('ifrRate1'), document.getElementById('ifrRate2')],
+            icuRates: [document.getElementById('icuRate0'), document.getElementById('icuRate1'), document.getElementById('icuRate2')],
+            displays: { r0Value: document.getElementById('r0Value'), infectiousValue: document.getElementById('infectiousValue'), immunityValue: document.getElementById('immunityValue'), incubationValue: document.getElementById('incubationValue'), populationValue: document.getElementById('populationValue'), detectionValue: document.getElementById('detectionValue'), lagValue: document.getElementById('lagValue'), vacEffInfValue: document.getElementById('vacEffInfValue'), vacEffSevValue: document.getElementById('vacEffSevValue') },
+            buttons: { run: document.getElementById('runButton'), freeze: document.getElementById('freezeButton'), reset: document.getElementById('resetButton'), importConfig: document.getElementById('importConfig'), exportConfig: document.getElementById('exportConfig'), exportResults: document.getElementById('exportResults'), exportMainChart: document.getElementById('exportMainChart'), exportRtChart: document.getElementById('exportRtChart') },
+            checkboxes: { logScale: document.getElementById('logScale') },
+            results: { peakICUValue: document.getElementById('peakICUValue'), totalDeathsValue: document.getElementById('totalDeathsValue'), attackRateValue: document.getElementById('attackRateValue'), peakDateValue: document.getElementById('peakDateValue') },
+            charts: { main: document.getElementById('mainChart'), rt: document.getElementById('rtChart') },
+            accordions: document.querySelectorAll('.accordion-item'),
+            progress: { container: document.getElementById('progress-container'), bar: document.getElementById('progress-bar') },
+            importFile: document.getElementById('importFile'),
+            mainLegend: document.getElementById('main-legend'),
+        };
+        
+        class UIHandler {
+            constructor() { this.init(); }
+            
+            init() {
+                this.updateSliderDisplays();
+                updateAgeSum();
+                this.setupEventListeners();
+                this.setUI(PRESETS.covid_realistic);
+                DOM.accordions[0].querySelector('.accordion-header').click();
+                // Chart initialization delayed until first run
+            }
+
+            initializeCharts(analysis) {
+                if (charts.main) charts.main.destroy();
+                if (charts.rt) charts.rt.destroy();
+
+                const chartOptions = (isRtChart = false) => ({
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { 
+                            type: 'time', 
+                            time: { 
+                                unit: 'month',
+                                tooltipFormat: 'MMM d, yyyy',
+                                displayFormats: { month: 'MMM yyyy' },
+                                min: new Date('2025-01-01'),
+                                max: new Date('2025-12-31') // Fixed to 730 days
+                            }, 
+                            ticks: { color: '#a1a1aa', maxTicksLimit: 6, source: 'auto' }, 
+                            grid: { color: '#27272a' }
+                        },
+                        y: { 
+                            type: DOM.checkboxes.logScale.checked && !isRtChart ? 'logarithmic' : 'linear', 
+                            ticks: { 
+                                color: '#a1a1aa',
+                                callback: function(value) {
+                                    if (value >= 1000000) return (Math.round(value / 1000000)) + 'M';
+                                    if (value >= 1000) return (Math.round(value / 1000)) + 'K';
+                                    return Math.round(value);
+                                },
+                                maxTicksLimit: 6
+                            }, 
+                            grid: { color: '#27272a' }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { 
+                            mode: 'index', 
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label.includes('(95% CI)')) return null;
+                                    if (label) label = label.replace(/ \(Run \d+\)/, '') + ': ';
+                                    if (context.parsed.y !== null) {
+                                        if (isRtChart) {
+                                            label += context.parsed.y.toFixed(2);
+                                        } else {
+                                            const val = Math.round(context.parsed.y);
+                                            if (val >= 1000000) label += (Math.round(val / 1000000)) + 'M';
+                                            else if (val >= 1000) label += (Math.round(val / 1000)) + 'K';
+                                            else label += val;
+                                        }
+                                    }
+                                    return label;
+                                }
+                            }
+                        },
+                        annotation: {
+                            annotations: isRtChart ? {
+                                one: { type: 'line', yMin: 1, yMax: 1, borderColor: '#fde04788', borderDash: [5, 5] }
+                            } : {
+                                hosp: { type: 'line', yMin: 50000, yMax: 50000, borderColor: '#fde04788', borderDash: [5, 5], label: { content: 'Hosp. Cap', display: true, position: 'start', color: '#fde047' } },
+                                icu: { type: 'line', yMin: 5000, yMax: 5000, borderColor: '#f8717188', borderDash: [5, 5], label: { content: 'ICU Cap', display: true, position: 'start', color: '#f87171' } }
+                            }
+                        }
+                    },
+                    interaction: { mode: 'index', intersect: false }
+                });
+                
+                charts.main = new Chart(DOM.charts.main, { type: 'line', data: { datasets: [] }, options: chartOptions() });
+                charts.rt = new Chart(DOM.charts.rt, { type: 'line', data: { datasets: [] }, options: chartOptions(true) });
+
+                if (analysis) {
+                    updateAllCharts(analysis);
+                }
+            }
+
+            setupEventListeners() {
+                Object.values(DOM.sliders).forEach(el => el.addEventListener('input', () => this.updateSliderDisplays()));
+                DOM.ageDist.forEach(el => el.addEventListener('input', updateAgeSum));
+                DOM.buttons.run.addEventListener('click', runFullSimulation);
+                DOM.buttons.freeze.addEventListener('click', this.freezeResults.bind(this));
+                DOM.buttons.reset.addEventListener('click', this.reset.bind(this));
+                DOM.buttons.importConfig.addEventListener('click', () => DOM.importFile.click());
+                DOM.buttons.exportResults.addEventListener('click', exportResults);
+                DOM.buttons.exportMainChart.addEventListener('click', () => { if (charts.main) exportChart(charts.main, 'rges_epidemic_curves'); });
+                DOM.buttons.exportRtChart.addEventListener('click', () => { if (charts.rt) exportChart(charts.rt, 'rges_rt_plot'); });
+                DOM.importFile.addEventListener('change', (e) => this.importConfig(e));
+                DOM.inputs.presets.addEventListener('change', (e) => this.loadPreset(e.target.value));
+
+                DOM.checkboxes.logScale.addEventListener('change', () => {
+                   updateAllCharts();
+                });
+
+                DOM.accordions.forEach(item => {
+                    const header = item.querySelector('.accordion-header');
+                    const content = item.querySelector('.accordion-content');
+                    const icon = header.querySelector('span');
+                    header.addEventListener('click', () => {
+                        const isOpen = content.style.maxHeight;
+                        if(isOpen && isOpen !== '0px') {
+                            content.style.maxHeight = null;
+                            icon.textContent = '+';
+                        } else {
+                            content.style.maxHeight = content.scrollHeight + "px";
+                            icon.textContent = '-';
+                        }
+                    });
+                });
+                
+                DOM.mainLegend.addEventListener('click', e => {
+                    if(e.target.tagName === 'BUTTON'){
+                        const metric = e.target.dataset.metric;
+                        e.target.classList.toggle('active');
+                        this.toggleDatasetVisibility(metric);
+                    }
+                });
+            }
+
+            toggleDatasetVisibility(metric) {
+                if(!charts.main) return;
+                const isActive = document.querySelector(`.legend-btn[data-metric="${metric}"]`).classList.contains('active');
+                [charts.main, charts.rt].forEach(chart => {
+                    chart.data.datasets.forEach(d => {
+                        if (d.label.includes(metric)) d.hidden = !isActive;
+                    });
+                    chart.update();
+                });
+
+                let max_y = 0;
+                charts.main.data.datasets.forEach(d => {
+                    if(!d.hidden && !d.label.includes('(95% CI)')) {
+                        d.data.forEach(point => {
+                            if (point.y) max_y = Math.max(max_y, point.y);
+                        });
+                    }
+                });
+                charts.main.options.scales.y.max = max_y > 0 ? max_y * 1.15 : undefined;
+                charts.main.update();
+            }
+
+            loadPreset(key) {
+                const p = PRESETS[key];
+                this.setUI(p);
+                updateAgeSum();
+            }
+
+            getUI() {
+                const config = {};
+                for (const key in DOM.sliders) config[key] = parseFloat(DOM.sliders[key].value);
+                for (const key in DOM.inputs) config[key] = parseFloat(DOM.inputs[key].value) || DOM.inputs[key].value;
+                config.ageDist = DOM.ageDist.map(el => parseFloat(el.value || 0));
+                config.contactMatrix = DOM.contactMatrix.flat().map(el => parseFloat(el.value || 1));
+                config.hospRates = DOM.hospRates.map(el => parseFloat(el.value || 0));
+                config.ifrRates = DOM.ifrRates.map(el => parseFloat(el.value || 0));
+                config.icuRates = DOM.icuRates.map(el => parseFloat(el.value || 0));
+                return config;
+            }
+            
+            setUI(config) {
+                for (const key in config) {
+                    if (DOM.sliders[key]) DOM.sliders[key].value = config[key];
+                    if (DOM.inputs[key]) DOM.inputs[key].value = config[key];
+                }
+                config.ageDist.forEach((v, i) => DOM.ageDist[i].value = v);
+                for(let i=0; i<3; i++) for(let j=0; j<3; j++) DOM.contactMatrix[i][j].value = config.contactMatrix[i*3+j];
+                config.hospRates.forEach((v, i) => DOM.hospRates[i].value = v);
+                config.ifrRates.forEach((v, i) => DOM.ifrRates[i].value = v);
+                config.icuRates.forEach((v, i) => DOM.icuRates[i].value = v);
+                this.updateSliderDisplays();
+            }
+
+            updateSliderDisplays() {
+                for(const key in DOM.displays) {
+                    const sliderKey = key.replace('Value','');
+                    if(DOM.sliders[sliderKey]) {
+                        const slider = DOM.sliders[sliderKey];
+                        let text = slider.value;
+                        if(key === 'r0Value') text = parseFloat(slider.value).toFixed(2);
+                        else if(key === 'infectiousValue' || key === 'incubationValue' || key === 'lagValue') text += ' days';
+                        else if(key === 'immunityValue') text = slider.value >= 1825 ? 'Lifelong' : `${(slider.value / 365).toFixed(1)} years`;
+                        else if(key === 'populationValue') text = Number(slider.value).toLocaleString();
+                        else if(key.includes('Eff') || key.includes('detection')) text += '%';
+                        DOM.displays[key].textContent = text;
+                    }
+                }
+            }
+
+            toggleRunButton(enable, text) {
+                DOM.buttons.run.disabled = !enable;
+                DOM.buttons.run.textContent = text;
+            }
+
+            updateProgress(value) {
+                DOM.progress.container.classList.toggle('hidden', value >= 1 || value < 0);
+                DOM.progress.bar.style.width = `${value * 100}%`;
+            }
+
+            updateSummary(summary) {
+                DOM.results.peakICUValue.textContent = Math.round(summary.peakICU).toLocaleString();
+                DOM.results.totalDeathsValue.textContent = Math.round(summary.totalDeaths).toLocaleString();
+                DOM.results.attackRateValue.textContent = `${(summary.attackRate * 100).toFixed(1)}%`;
+                DOM.results.peakDateValue.textContent = summary.peakDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+            }
+
+            exportConfig() {
+                const config = this.getUI();
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(config, null, 2));
+                const downloadAnchorNode = document.createElement('a');
+                downloadAnchorNode.setAttribute("href", dataStr);
+                downloadAnchorNode.setAttribute("download", "rges_config.json");
+                document.body.appendChild(downloadAnchorNode);
+                downloadAnchorNode.click();
+                downloadAnchorNode.remove();
+            }
+
+            importConfig(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const config = JSON.parse(e.target.result);
+                        this.setUI(config);
+                        updateAgeSum();
+                    } catch (err) {
+                        alert("Error parsing config file.");
+                        console.error(err);
+                    }
+                };
+                reader.readAsText(file);
+            }
+            
+            freezeResults() {
+                if(!currentRunResults.length) return;
+                freezeCounter++;
+                frozenResults.push({ results: analyzeBatchResults(currentRunResults), id: freezeCounter });
+                updateAllCharts();
+            }
+
+            reset() {
+                frozenResults = [];
+                freezeCounter = 0;
+                this.setUI(PRESETS.covid_realistic);
+                DOM.inputs.presets.value = 'covid_realistic';
+                updateAgeSum();
+                runFullSimulation();
+            }
+        }
+
+        const ui = new UIHandler();
+
+        function updateAgeSum() {
+            let sum = 0;
+            DOM.ageDist.forEach(el => sum += parseFloat(el.value || 0));
+            DOM.ageSum.textContent = `Sum: ${sum.toFixed(1)}%`;
+            DOM.ageSum.className = `text-sm ${Math.abs(sum - 100) < 0.1 ? 'text-green-400' : 'text-red-400'}`;
+            if (Math.abs(sum - 100) >= 0.1) {
+                DOM.ageSum.title = 'Age distribution percentages should sum to 100%';
+            } else {
+                DOM.ageSum.title = '';
+            }
+        }
+
+        function exportChart(chart, filename) {
+            const link = document.createElement('a');
+            link.download = filename + '.png';
+            link.href = chart.toBase64Image();
+            link.click();
+        }
+
+        function exportResults() {
+            if (currentRunResults.length === 0) {
+                alert('No simulation results to export.');
+                return;
+            }
+            const analysis = analyzeBatchResults(currentRunResults);
+            const exportData = {
+                params: ui.getUI(),
+                current: analysis,
+                frozen: frozenResults.map(fr => ({ id: fr.id, ...fr.results }))
+            };
+            const str = JSON.stringify(exportData, (key, value) => {
+                if (key === 't' && Array.isArray(value)) {
+                    return value.map(d => d.toISOString());
+                }
+                return value;
+            }, 2);
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(str);
+            const a = document.createElement('a');
+            a.setAttribute("href", dataStr);
+            a.setAttribute("download", "rges_results.json");
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        function runSingleInstance(params, rng) {
+            const AGE_GROUPS = 3;
+            const N_age = params.ageDist.map(p => p/100 * params.population);
+            const S = [...N_age]; S[0] -= 1; 
+            const E = Array(AGE_GROUPS).fill(0); E[0] = 1;
+            const I = Array(AGE_GROUPS).fill(0);
+            const H = Array(AGE_GROUPS).fill(0);
+            const C = Array(AGE_GROUPS).fill(0);
+            const R = Array(AGE_GROUPS).fill(0);
+            const V = Array(AGE_GROUPS).fill(0);
+            const D = Array(AGE_GROUPS).fill(0);
+
+            const series = { t:[], I:[], H:[], C:[], D:[], R_eff:[], Reported:[] };
+            const reportingBuffer = new Array(Math.round(params.lag) + 1).fill(0);
+
+            let npiActive = false;
+            let npiLagCounter = -1;
+            let totalInfected = 1;
+
+            for (let t = 0; t < 730; t++) {
+                const I_total_by_age = I.map((inf, i) => inf + E[i] * 0.5);
+                const N_total = params.population;
+                const C_total = C.reduce((a, b) => a + b, 0);
+
+                let currentCM = params.contactMatrix;
+                if (npiLagCounter > 0) npiLagCounter--;
+                if (C_total > params.icuCapacity * (params.npiTrigger / 100) && !npiActive && npiLagCounter < 0) {
+                    npiLagCounter = params.npiLag;
+                }
+                if (npiLagCounter === 0) {
+                    npiActive = true;
+                    npiLagCounter = -1;
+                }
+                if (C_total < params.icuCapacity * (params.npiTrigger / 100 * 0.8) && npiActive) {
+                    npiActive = false;
+                }
+                if(npiActive && npiLagCounter <= 0) {
+                    currentCM = currentCM.map(c => c * (1 - params.npiStrength/100));
+                }
+                
+                const beta = params.baseR0 / params.infectious;
+                const lambda = Array(AGE_GROUPS).fill(0);
+                for (let i = 0; i < AGE_GROUPS; i++) {
+                    let total_contact_pressure = 0;
+                    for (let j = 0; j < AGE_GROUPS; j++) {
+                        total_contact_pressure += currentCM[i * AGE_GROUPS + j] * I_total_by_age[j];
+                    }
+                    lambda[i] = beta * total_contact_pressure / N_total * (1 + (rng() - 0.5) * 0.1);
+                }
+                
+                const S_total = S.reduce((a, b) => a + b, 0);
+                const R_eff = params.baseR0 * (S_total / N_total) * (npiActive && npiLagCounter <=0 ? (1-params.npiStrength/100) : 1);
+
+                let dailyVaccinations = t >= params.vaccineStart ? params.vaccineRate : 0;
+                const newI = Array(AGE_GROUPS).fill(0);
+
+                for (let i = 0; i < AGE_GROUPS; i++) {
+                    const rate = 1 / params.immunity;
+                    const waning_R = rate * R[i];
+                    const waning_V = rate * V[i];
+
+                    let vax_i = 0;
+                    if (dailyVaccinations > 0 && S[i] > 0) {
+                        const frac = N_age[i] / N_total;
+                        vax_i = Math.min(S[i], dailyVaccinations * frac);
+                        dailyVaccinations -= vax_i;
+                    }
+
+                    const susc_S = S[i] * lambda[i];
+                    const susc_V = V[i] * lambda[i] * (1 - params.vacEffInf / 100);
+                    const newE_i = susc_S + susc_V;
+                    totalInfected += newE_i;
+
+                    const newI_i = E[i] / params.incubation;
+                    newI[i] = newI_i;
+
+                    const eff_hosp = (params.hospRates[i] / 100) * (1 - params.vacEffSev / 100);
+                    const to_severe = (1 / params.infectious) * I[i] * eff_hosp;
+                    const to_recover_mild = (1 / params.infectious) * I[i] * (1 - eff_hosp);
+
+                    const eff_icu = (params.icuRates[i] / 100) * (1 - params.vacEffSev / 100);
+                    const to_critical = (1 / 10) * H[i] * eff_icu;
+                    const to_recover_hosp = (1 / 10) * H[i] * (1 - eff_icu);
+
+                    const icu_overload_factor = C_total > params.icuCapacity ? params.icuMortalityMultiplier : 1;
+                    const eff_ifr = (params.ifrRates[i] / 100) * (1 - params.vacEffSev / 100);
+                    const effective_mortality = eff_ifr * icu_overload_factor;
+                    const to_death = (1 / 14) * C[i] * effective_mortality;
+                    const to_recover_icu = (1 / 14) * C[i] * Math.max(0, 1 - effective_mortality);
+
+                    S[i] += waning_R + waning_V - susc_S - vax_i;
+                    E[i] += newE_i - newI_i;
+                    I[i] += newI_i - to_severe - to_recover_mild;
+                    H[i] += to_severe - to_critical - to_recover_hosp;
+                    C[i] += to_critical - to_death - to_recover_icu;
+                    R[i] += to_recover_mild + to_recover_hosp + to_recover_icu - waning_R;
+                    V[i] += vax_i - susc_V - waning_V;
+                    D[i] += to_death;
+                }
+                
+                const date = new Date('2025-01-01'); date.setDate(date.getDate() + t);
+                series.t.push(date);
+                series.I.push(I.reduce((a, b) => a + b, 0));
+                series.H.push(H.reduce((a, b) => a + b, 0));
+                series.C.push(C.reduce((a, b) => a + b, 0));
+                series.D.push(D.reduce((a, b) => a + b, 0));
+                series.R_eff.push(R_eff);
+                
+                const newlyReported = newI.reduce((a,b)=>a+b,0) * (params.detection / 100);
+                reportingBuffer.push(newlyReported);
+                series.Reported.push(reportingBuffer.shift());
+                
+                if (I.reduce((a, b) => a + b, 0) + E.reduce((a, b) => a + b, 0) < 1 && t > params.incubation) break;
+            }
+            
+            series.totalInfected = totalInfected;
+            return series;
+        }
+
+        async function runFullSimulation() {
+            ui.toggleRunButton(false, 'Simulating...');
+            ui.updateProgress(0);
+            
+            await new Promise(resolve => setTimeout(resolve, 10)); 
+            
+            const params = ui.getUI();
+            const seed = parseInt(params.rngSeed) || Math.floor(Math.random() * 1e9);
+            DOM.inputs.rngSeed.value = seed;
+            const runs = params.stochasticRuns;
+
+            currentRunResults = [];
+            for (let i = 0; i < runs; i++) {
+                const rng = mulberry32(seed + i);
+                currentRunResults.push(runSingleInstance(params, rng));
+                if (i % 5 === 0) {
+                   await new Promise(resolve => setTimeout(resolve, 0)); 
+                   ui.updateProgress((i + 1) / runs); 
+                }
+            }
+            
+            ui.updateProgress(1);
+            const analysis = analyzeBatchResults(currentRunResults);
+            if (!charts.main) {
+                ui.initializeCharts(analysis); // Initialize charts only after first run
+            } else {
+                analyzeAndDrawResults();
+            }
+            ui.toggleRunButton(true, 'Run Simulation');
+        }
+
+        function analyzeBatchResults(results) {
+            if (!results || results.length === 0) return null;
+            const T = Math.min(...results.map(r => r.t.length));
+            if (T === 0) return null;
+
+            const summary = { peakICU: 0, totalDeaths: 0, attackRate: 0, peakDate: results[0].t[0] };
+            const series = { t: results[0].t.slice(0, T) };
+            const seriesKeys = ['I', 'H', 'C', 'D', 'R_eff', 'Reported'];
+
+            for (const key of seriesKeys) {
+                series[key] = { mean: new Array(T).fill(0), p025: new Array(T).fill(0), p975: new Array(T).fill(0) };
+                for (let t = 0; t < T; t++) {
+                    const values = results.map(r => r[key][t]).sort((a, b) => a - b);
+                    series[key].mean[t] = values.reduce((a, b) => a + b, 0) / values.length;
+                    series[key].p025[t] = values[Math.floor(values.length * 0.025)];
+                    series[key].p975[t] = values[Math.floor(values.length * 0.975)];
+                }
+            }
+
+            const finalDeaths = results.map(r => r.D[r.D.length - 1]);
+            summary.totalDeaths = finalDeaths.reduce((a, b) => a + b, 0) / finalDeaths.length;
+
+            const peakICUs = results.map(r => Math.max(...r.C));
+            summary.peakICU = peakICUs.reduce((a, b) => a + b, 0) / peakICUs.length;
+
+            const peakTimes = results.map(r => {
+                const peakVal = Math.max(...r.C);
+                if (peakVal === 0) return null;
+                const peakIndex = r.C.indexOf(peakVal);
+                if (peakIndex === -1 || peakIndex >= r.t.length) return null;
+                return r.t[peakIndex];
+            }).filter(Boolean);
+
+            if (peakTimes.length > 0) {
+                summary.peakDate = new Date(peakTimes.reduce((a, t) => a + t.getTime(), 0) / peakTimes.length);
+            }
+            
+            const totalInfected = results.map(r => r.totalInfected);
+            const N = ui.getUI().population;
+            summary.attackRate = (totalInfected.reduce((a, b) => a + b, 0) / totalInfected.length) / N;
+
+            return { series, summary };
+        }
+
+        function analyzeAndDrawResults() {
+            const analysis = analyzeBatchResults(currentRunResults);
+            if(analysis) {
+                ui.updateSummary(analysis.summary);
+                updateAllCharts(analysis);
+            }
+        }
+
+        const mainMetrics = [
+            { key: 'I', label: 'Active Infections', color: '#3b82f6' },
+            { key: 'C', label: 'ICU Occupancy', color: '#ef4444' },
+            { key: 'H', label: 'Hospitalized', color: '#f97316' },
+            { key: 'Reported', label: 'Daily Reported Cases', color: '#eab308' },
+            { key: 'D', label: 'Cumulative Deaths', color: '#a855f7' }
+        ];
+
+        function createChartDatasets(analysis, id) {
+             const datasets = { main: [], rt: [] };
+             if (!analysis) return datasets;
+
+             const isFrozen = id !== 'current';
+             const suffix = isFrozen ? ` (Run ${id})` : '';
+             const colorModifier = (c) => isFrozen ? lightenColor(c, 40) : c;
+
+             mainMetrics.forEach(m => {
+                if (!isFrozen) {
+                    datasets.main.push({ label: `${m.label} (95% CI)`, data: analysis.series.t.map((t, i) => ({x: t, y: [analysis.series[m.key].p025[i], analysis.series[m.key].p975[i]]})), fill: '+1', backgroundColor: `${m.color}33`, borderColor: 'transparent', pointRadius: 0, borderWidth: 0 });
+                }
+                datasets.main.push({ label: m.label + suffix, data: analysis.series.t.map((t, i) => ({x: t, y: analysis.series[m.key].mean[i]})), borderColor: colorModifier(m.color), borderWidth: 2, pointRadius: 0, fill: false, borderDash: isFrozen ? [5,5] : [] });
+            });
+
+            if (!isFrozen) {
+                datasets.rt.push({ label: `Rₜ (95% CI)`, data: analysis.series.t.map((t, i) => ({x: t, y: [analysis.series.R_eff.p025[i], analysis.series.R_eff.p975[i]]})), fill: '+1', backgroundColor: `#86efac33`, borderColor: 'transparent', pointRadius: 0, borderWidth: 0 });
+            }
+            datasets.rt.push({ label: `Rₜ (Mean)` + suffix, data: analysis.series.t.map((t, i) => ({x: t, y: analysis.series.R_eff.mean[i]})), borderColor: colorModifier('#22c55e'), borderWidth: 2, pointRadius: 0, fill: false, borderDash: isFrozen ? [5,5] : [] });
+            return datasets;
+        }
+
+        function updateAllCharts(analysis) {
+            if (!charts.main || !charts.rt) return;
+
+            const params = ui.getUI();
+            charts.main.options.plugins.annotation.annotations.hosp.yMin = params.hospitalCapacity;
+            charts.main.options.plugins.annotation.annotations.hosp.yMax = params.hospitalCapacity;
+            charts.main.options.plugins.annotation.annotations.icu.yMin = params.icuCapacity;
+            charts.main.options.plugins.annotation.annotations.icu.yMax = params.icuCapacity;
+            
+            if (!analysis) return;
+
+            const currentDatasets = createChartDatasets(analysis, 'current');
+            
+            const allMainDatasets = [...currentDatasets.main];
+            const allRtDatasets = [...currentDatasets.rt];
+
+            frozenResults.forEach(fr => {
+                const frozenDatasets = createChartDatasets(fr.results, fr.id);
+                allMainDatasets.push(...frozenDatasets.main);
+                allRtDatasets.push(...frozenDatasets.rt.filter(ds => !ds.label.includes('95% CI')));
+            });
+            
+            charts.main.data.datasets = allMainDatasets;
+            charts.rt.data.datasets = allRtDatasets;
+
+            // Compute and set y max for main chart
+            let max_y = 0;
+            allMainDatasets.forEach(d => {
+                if (!d.hidden && !d.label.includes('(95% CI)')) {
+                    d.data.forEach(point => {
+                        if (point.y) max_y = Math.max(max_y, point.y);
+                    });
+                }
+            });
+            charts.main.options.scales.y.max = max_y > 0 ? max_y * 1.15 : undefined;
+
+            // Update legend
+            const colorMap = {
+                'Active Infections': '#3b82f6',
+                'ICU Occupancy': '#ef4444',
+                'Hospitalized': '#f97316',
+                'Daily Reported Cases': '#eab308',
+                'Cumulative Deaths': '#a855f7',
+                'Rₜ (Mean)': '#22c55e'
+            };
+            const metricSet = new Set();
+            [...allMainDatasets, ...allRtDatasets].forEach(ds => {
+                let label = ds.label.replace(/ \(Run \d+\)/, '').replace(' (95% CI)', '');
+                if (label) metricSet.add(label);
+            });
+            DOM.mainLegend.innerHTML = Array.from(metricSet).map(m => {
+                const color = colorMap[m] || '#6b7280';
+                return `<button class="legend-btn px-2 py-1 text-xs rounded" data-metric="${m}" style="border-left: 4px solid ${color}; padding-left: 8px; padding-right: 4px;">${m}</button>`;
+            }).join('');
+            document.querySelectorAll('#main-legend .legend-btn').forEach(btn => btn.classList.add('active'));
+            
+            charts.main.update();
+            charts.rt.update();
+        }
+
+        function lightenColor(hex, p) { let r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);r=Math.min(255,~~(r*(100+p)/100));g=Math.min(255,~~(g*(100+p)/100));b=Math.min(255,~~(b*(100+p)/100));return`#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`}
+
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(runFullSimulation, 100); // Trigger initial run to initialize charts
+        });
+    </script>
+</body>
+</html>
